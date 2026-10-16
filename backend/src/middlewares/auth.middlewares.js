@@ -2,7 +2,7 @@ const jwt = require('jsonwebtoken');
 const db = require("../config/conf.config")
 
 const verificationToken = async(req, res, next) =>{
-    const autheaders = req.hraders('authorization')
+    const autheaders = req.headers('authorization')
 
     if(!autheaders){
         return res.status(401).json({message: "Non autorisé, token manquant"})
@@ -11,9 +11,15 @@ const verificationToken = async(req, res, next) =>{
 
     try{
         const decoder = jwt.verify(token, process.env.JWT_SECRET);
-        req.user = await db.query("SELECT * FROM user WHERE mdp ?", )[decoder]
 
+       const [rows] = await db.query("SELECT id, nom, prenom, email FROM users WHERE id = ?", [decoder.id]);
+       const user = rows[0];
+
+        if (!user) {
+            return res.status(401).json({ message: "Utilisateur non trouvé" });
+        }
         
+        req.user = user
 
         next();
 
