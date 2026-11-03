@@ -14,7 +14,7 @@ exports.registre = async(data) =>{
 
     if(userExiste) throw new Error("cet email existe déjà");
 
-    const hashpassword = await bycrypt.hash(mdp, 10);
+    const hashpassword = await bcrypt.hash(mdp, 10);
 
     await db.query(
         "INSERT INTO users(nom,prenom,email,mdp) VALUES(?, ?, ?, ?)",
