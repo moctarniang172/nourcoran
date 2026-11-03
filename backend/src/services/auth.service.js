@@ -1,57 +1,52 @@
 const bcrypt = require('bcrypt');
-const db = require("../config/conf.config");
 const jwt = require('jsonwebtoken');
+const db = require('../config/db.config'); // vérifie le nom exact du fichier
 
-exports.registre = async(data) =>{
-    const {nom, prenom, email, mdp} = data;
-    if(!nom || !prenom || !nom || !email || !mdp) {
-        throw new Error("Veuillez remplir tous les champs !")
-    }
+const erreur = (message, status) => Object.assign(new Error(message), { status });
+const estTexte = (v) => typeof v === 'string' && v.trim() !== '';
 
-    // verifier si l'email est existe
-    const [rows] = await db.query("SELECT * FROM users WHERE email = ?", [email]);
-    const userExiste = rows[0];
+exports.registre = async (data) => {
+  const { nom, prenom, email, mdp } = data;
 
-    if(userExiste) throw new Error("cet email existe déjà");
+  if (![nom, prenom, email, mdp].every(estTexte)) {
+    throw erreur('Veuillez remplir tous les champs !', 400);
+  }
+  if (mdp.length < 8 || mdp.length > 72) {
+    throw erreur('Le mot de passe doit contenir entre 8 et 72 caractères.', 400);
+  }
 
-    const hashpassword = await bycrypt.hash(mdp, 10);
+  const hashpassword = await bcrypt.hash(mdp, 10);
 
-    await db.query(
-        "INSERT INTO users(nom,prenom,email,mdp) VALUES(?, ?, ?, ?)",
-        [nom,prenom,email,hashpassword]
+  try {
+    await db.execute(
+      'INSERT INTO users (nom, prenom, email, password_hash) VALUES (?, ?, ?, ?)',
+      [nom.trim(), prenom.trim(), email.trim().toLowerCase(), hashpassword]
     );
-    return {message: "compte créé avec succès !" }
-}
+  } catch (err) {
+    if (err.code === 'ER_DUP_ENTRY') throw erreur('Cet email existe déjà.', 409);
+    throw err;
+  }
+
+  return { message: 'Compte créé avec succès !' };
+};
 
 exports.login = async (data) => {
-    const { email, mdp } = data;
-    
-    if (!email || !mdp) {
-        throw new Error("Veuillez remplir tous les champs !");
-    }
+  const { email, mdp } = data;
 
-    // CORRECTION : On déstructure correctement [rows] pour récupérer le tableau des résultats
-    const [rows] = await db.query("SELECT * FROM users WHERE email = ?", [email]);
-    const user = rows[0]; // Ici, user est bien l'objet de l'utilisateur
+  if (!estTexte(email) || typeof mdp !== 'string' || mdp === '') {
+    throw erreur('Veuillez remplir tous les champs !', 400);
+  }
 
-    if (!user) {
-        throw new Error("Mot de passe ou email incorrect");
-    }
+  const [rows] = await db.execute(
+    'SELECT id, nom, prenom, email, password, role FROM users WHERE email = ?',
+    [email.trim().toLowerCase()]
+  );
+  const user = rows[0];
+  const isValide = user && (await bcrypt.compare(mdp, user.password_hash));
 
-   
+  if (!isValide) throw erreur('Mot de passe ou email incorrect', 401);
 
-    const isValide = await bcrypt.compare(mdp, user.mdp);
-    
-    if (!isValide) {
-        throw new Error("Mot de passe ou email incorrect");
-    }
+  const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET, { expiresIn: '7d' });
 
-    const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET, { expiresIn: '7d' });
-
-    return { 
-        message: "Connexion réussie !", 
-        id: user.id, 
-        nom: user.nom, 
-        token 
-    };
+  return { message: 'Connexion réussie !', id: user.id, nom: user.nom, role: user.role, token };
 };
